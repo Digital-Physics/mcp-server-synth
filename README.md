@@ -1,0 +1,1 @@
+Starting point for an MCP server with tooling to generate synth music that can play to accompany a text response.
