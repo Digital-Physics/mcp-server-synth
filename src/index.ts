@@ -1,25 +1,12 @@
-// import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-// import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-// import { z } from "zod";
-
-// const NWS_API_BASE = "https://api.weather.gov";
-// const USER_AGENT = "weather-app/1.0";
-
-// // Create server instance
-// const server = new McpServer({
-//   name: "weather",
-//   version: "1.0.0",
-//   capabilities: {
-//     resources: {},
-//     tools: {},
-//   },
-// });
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import * as Tone from "tone";
 import fs from "fs";
 import { exec } from "child_process";
+// @ts-ignore (suppress type checking; this comment tells TS to treat it as any and compile anyway)
+import * as WavEncoder from "wav-encoder";
+import os from "os";
+import path from "path";
 
 const server = new McpServer({
   name: "retro-synth",
@@ -30,104 +17,106 @@ const server = new McpServer({
   },
 });
 
-// Simple helper to synthesize retro-style music
-async function synthesizeRetroTrack(tone: string, filename: string): Promise<string> {
-  // Use Tone.js offline rendering
-  const buffer = await Tone.Offline(({ transport }) => {
-    const synth = new Tone.MonoSynth({
-      oscillator: { type: "square" },
-      envelope: { attack: 0.05, decay: 0.3, sustain: 0.2, release: 1 },
-    }).toDestination();
+// --- Retro Synth Helper Functions ---
 
-    const seqNotes =
-      tone === "happy"
-        ? ["C4", "E4", "G4", "B4"]
-        : tone === "dark"
-        ? ["C3", "Eb3", "G3", "Bb2"]
-        : ["C4", "D#4", "F4", "A#3"];
+// Generate a simple sine wave melody
+function generateRetroWave(notes: number[], durationSec = 2, sampleRate = 44100): Float32Array {
+  const totalSamples = durationSec * sampleRate;
+  const buffer = new Float32Array(totalSamples);
 
-    const seq = new Tone.Sequence(
-      (time, note) => {
-        synth.triggerAttackRelease(note, "8n", time);
-      },
-      seqNotes,
-      "4n",
-    );
+  notes.forEach((freq, idx) => {
+    const start = Math.floor((idx * totalSamples) / notes.length);
+    const end = Math.floor(((idx + 1) * totalSamples) / notes.length);
 
-    seq.start(0);
-    transport.start();
-  }, 4); // 4 seconds
+    for (let i = start; i < end; i++) {
+      buffer[i] = Math.sin((2 * Math.PI * freq * i) / sampleRate) * 0.3;
+    }
+  });
 
-  const wav = Buffer.from(await buffer.arrayBuffer());
-  fs.writeFileSync(filename, wav);
-  return filename;
+  return buffer;
 }
 
-let lastTrack = "retro.wav";
+async function synthesizeRetroTrack(tone: string, filename: string): Promise<string> {
+  // Pick frequencies by mood
+  const tones: Record<string, number[]> = {
+    happy: [262, 330, 392, 494],      // C4, E4, G4, B4
+    dark: [131, 156, 196, 233],       // C3, Eb3, G3, Bb3
+    mysterious: [262, 311, 370, 440], // C4, D#4, F#4, A4
+  };
 
-// Register tool: synthesize
+  const notes = tones[tone] || tones["mysterious"];
+
+  const audioData = {
+    sampleRate: 44100,
+    channelData: [generateRetroWave(notes)],
+  };
+
+  const wav = await WavEncoder.encode(audioData);
+
+  // Always save inside system temp directory
+  const filePath = path.join(os.tmpdir(), filename);
+  fs.writeFileSync(filePath, Buffer.from(wav));
+
+  return filePath;
+}
+
+let lastTrack = "";
+
+// --- MCP Tools ---
+
 server.tool(
   "synthesize_music",
   "Generate retro synth music based on tone",
   {
-    tone: z.string().describe("Tone of the track (e.g., happy, dark, mysterious)"),
+    tone: z.string().describe("Tone of the track (happy, dark, mysterious)"),
   },
   async ({ tone }) => {
-    lastTrack = `retro_${tone}.wav`;
-    await synthesizeRetroTrack(tone, lastTrack);
-
+    lastTrack = await synthesizeRetroTrack(tone, `retro_${tone}.wav`);
     return {
       content: [
         {
           type: "text",
-          text: `Generated retro synth track with tone '${tone}' at ${lastTrack}`,
+          text: `Generated retro synth track '${tone}' at ${lastTrack}`,
         },
       ],
     };
   },
 );
 
-// Register tool: play
 server.tool(
   "play_music",
   "Play the last generated retro synth track",
   {},
   async () => {
-    if (!fs.existsSync(lastTrack)) {
+    if (!lastTrack || !fs.existsSync(lastTrack)) {
       return {
         content: [
-          {
-            type: "text",
-            text: "No track has been generated yet. Call synthesize_music first.",
-          },
+          { type: "text", text: "No track yet. Run synthesize_music first." },
         ],
       };
     }
 
     // Cross-platform audio playback
     const player = process.platform === "darwin" ? "afplay" : "mpg123";
-    exec(`${player} ${lastTrack}`, (err) => {
+    exec(`${player} "${lastTrack}"`, (err) => {
       if (err) console.error("Error playing track:", err);
     });
 
     return {
-      content: [
-        {
-          type: "text",
-          text: `Playing ${lastTrack}...`,
-        },
-      ],
+      content: [{ type: "text", text: `Playing ${lastTrack}...` }],
     };
   },
 );
 
+// --- Main Entrypoint ---
+
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error("Retro Synth MCP Server running on stdio");
+  console.error("🎵 Retro Synth MCP Server running on stdio");
 }
 
 main().catch((error) => {
-  console.error("Fatal error in main():", error);
+  console.error("Fatal error:", error);
   process.exit(1);
 });
