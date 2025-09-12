@@ -7,6 +7,4 @@ npm init -y
 npm install @modelcontextprotocol/sdk zod@3
 npm install -D @types/node typescript
 
-# Create our files
-mkdir src
-touch src/index.ts
+![pic](./img/screenshot.png)
