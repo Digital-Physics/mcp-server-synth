@@ -5,9 +5,9 @@ This repository contains a basic demo of an MCP server with tooling to generate 
 npm init -y
 
 ### Install dependencies
-npm install @modelcontextprotocol/sdk zod@3
-npm install -D @types/node typescript
-npm install wav-encoder wav-decoder
+npm install @modelcontextprotocol/sdk zod@3  
+npm install -D @types/node typescript  
+npm install wav-encoder wav-decoder  
 
 ### Build
 npm run build

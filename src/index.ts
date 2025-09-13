@@ -17,8 +17,8 @@ const __dirname = path.dirname(__filename);
 
 // --- MCP Server ---
 const server = new McpServer({
-  name: "sample-synth",
-  version: "1.3.0",
+  name: "layered-synth",
+  version: "1.4.0",
 });
 
 // --- Helper Functions ---
@@ -35,6 +35,10 @@ async function loadSample(filePath: string, targetSampleRate: number): Promise<F
   return resampled;
 }
 
+/**
+ * Mixes multiple audio buffers, each with its own offset.
+ * Normalizes the final track to prevent clipping.
+ */
 function mixBuffers(buffers: Float32Array[], offsets: number[]): Float32Array {
   const length = Math.max(...buffers.map((b, i) => b.length + offsets[i]));
   const track = new Float32Array(length);
@@ -51,7 +55,9 @@ function mixBuffers(buffers: Float32Array[], offsets: number[]): Float32Array {
     const absVal = Math.abs(track[i]);
     if (absVal > max) max = absVal;
   }
-  if (max > 1) for (let i = 0; i < track.length; i++) track[i] /= max;
+  if (max > 1) {
+    for (let i = 0; i < track.length; i++) track[i] /= max;
+  }
 
   return track;
 }
@@ -65,72 +71,100 @@ function getSamplesFromFolder(folderName: string): string[] {
     .map(f => path.join(folderName, f)); // relative to samples root
 }
 
-// --- Generate sequence dynamically ---
-function getSampleSequence(tone: string, repeats = 8) {
-  const kicks = getSamplesFromFolder("kick");
-  const snares = getSamplesFromFolder("snare");
-  const basses = getSamplesFromFolder("bass");
-  const chords = getSamplesFromFolder("chord");
-
-  const sequence: { sample: string; time: number }[] = [];
-
-  for (let r = 0; r < repeats; r++) {
-    const offset = r * 1.0; // 1 second per repeat
-
-    // kick (random each bar)
-    if (kicks.length > 0) {
-      const kick = kicks[Math.floor(Math.random() * kicks.length)];
-      sequence.push({ sample: kick, time: offset });
-    }
-
-    // snare (backbeat)
-    if (snares.length > 0) {
-      const snare = snares[Math.floor(Math.random() * snares.length)];
-      sequence.push({ sample: snare, time: offset + 0.5 });
-    }
-
-    // bass (optional every beat)
-    if (basses.length > 0) {
-      const bass = basses[Math.floor(Math.random() * basses.length)];
-      sequence.push({ sample: bass, time: offset });
-      sequence.push({ sample: bass, time: offset + 0.5 });
-    }
-
-    // chord (longer sustain, once per bar)
-    if (chords.length > 0) {
-      const chord = chords[Math.floor(Math.random() * chords.length)];
-      sequence.push({ sample: chord, time: offset });
-    }
-  }
-
-  return sequence;
+// --- Music Data Structures ---
+interface AudioEvent {
+  samplePath: string;
+  time: number;
 }
 
-// --- Generate WAV track ---
-async function generateSampledTrackFile(tone: string): Promise<string> {
+interface Track {
+  name: string;
+  events: AudioEvent[];
+}
+
+// --- Composition Logic ---
+/**
+ * Generates a full music composition with multiple, independent tracks.
+ */
+function getComposition(tone: string, repeats = 32): Track[] {
+  const allSamples = {
+    kicks: getSamplesFromFolder("kick"),
+    snares: getSamplesFromFolder("snare"),
+    hihats: getSamplesFromFolder("hihat"),
+    basses: getSamplesFromFolder("bass"),
+    chords: getSamplesFromFolder("chord"),
+  };
+
+  const tracks: Track[] = [];
+
+  // Track 1: Drums (Kick & Snare)
+  if (allSamples.kicks.length > 0 && allSamples.snares.length > 0) {
+    const drumTrack: AudioEvent[] = [];
+    for (let r = 0; r < repeats; r++) {
+      const offset = r * 1.0; // 1 second per repeat
+      const kick = allSamples.kicks[Math.floor(Math.random() * allSamples.kicks.length)];
+      const snare = allSamples.snares[Math.floor(Math.random() * allSamples.snares.length)];
+
+      // Basic backbeat pattern
+      drumTrack.push({ samplePath: kick, time: offset });
+      drumTrack.push({ samplePath: snare, time: offset + 0.5 });
+      drumTrack.push({ samplePath: kick, time: offset + 0.5 + 0.25 }); // A little variation
+    }
+    tracks.push({ name: "drums", events: drumTrack });
+  }
+
+  // Track 2: Bassline
+  if (allSamples.basses.length > 0) {
+    const bassTrack: AudioEvent[] = [];
+    const bass = allSamples.basses[Math.floor(Math.random() * allSamples.basses.length)];
+    for (let r = 0; r < repeats; r++) {
+      const offset = r * 1.0;
+      bassTrack.push({ samplePath: bass, time: offset });
+    }
+    tracks.push({ name: "bass", events: bassTrack });
+  }
+
+  // Track 3: Chords
+  if (allSamples.chords.length > 0) {
+    const chordTrack: AudioEvent[] = [];
+    const chord = allSamples.chords[Math.floor(Math.random() * allSamples.chords.length)];
+    for (let r = 0; r < repeats; r += 2) { // Play chord every two bars
+      const offset = r * 1.0;
+      chordTrack.push({ samplePath: chord, time: offset });
+    }
+    tracks.push({ name: "chords", events: chordTrack });
+  }
+
+  return tracks;
+}
+
+// --- Generate WAV track from multiple layers ---
+async function generateLayeredTrackFile(tone: string): Promise<string> {
   const sampleRate = 44100;
   const sampleFolder = path.resolve(__dirname, "../samples");
-  const sequence = getSampleSequence(tone, 8);
+  const tracks = getComposition(tone, 32);
 
   const buffers: Float32Array[] = [];
   const offsets: number[] = [];
 
-  for (const event of sequence) {
-    const samplePath = path.join(sampleFolder, event.sample);
-    if (!fs.existsSync(samplePath)) {
-      console.warn(`Missing sample ${event.sample}, skipping.`);
-      continue;
+  for (const track of tracks) {
+    for (const event of track.events) {
+      const samplePath = path.join(sampleFolder, event.samplePath);
+      if (!fs.existsSync(samplePath)) {
+        console.warn(`Missing sample ${event.samplePath}, skipping.`);
+        continue;
+      }
+      const sampleBuffer = await loadSample(samplePath, sampleRate);
+      buffers.push(sampleBuffer);
+      offsets.push(Math.floor(event.time * sampleRate));
     }
-    const sampleBuffer = await loadSample(samplePath, sampleRate);
-    buffers.push(sampleBuffer);
-    offsets.push(Math.floor(event.time * sampleRate));
   }
 
   const trackBuffer = mixBuffers(buffers, offsets);
   const audioData = { sampleRate, channelData: [trackBuffer] };
   const wav = await WavEncoder.encode(audioData);
 
-  const filePath = path.join(os.tmpdir(), `sampled_${tone}_${Date.now()}.wav`);
+  const filePath = path.join(os.tmpdir(), `layered_${tone}_${Date.now()}.wav`);
   fs.writeFileSync(filePath, Buffer.from(wav));
   return filePath;
 }
@@ -144,21 +178,21 @@ function playAudioAsync(filePath: string) {
 
 // --- MCP Tool ---
 server.tool(
-  "play_sampled_music",
-  "Play sampled music while LLM types",
+  "play_layered_music",
+  "Play music with multiple layered tracks.",
   {
-    tone: z.string().describe("Tone of the track (happy, dark, mysterious)"),
+    tone: z.string().describe("Tone of the track (e.g., happy, dark, mysterious)"),
   },
   async ({ tone }) => {
     try {
-      const filePath = await generateSampledTrackFile(tone);
+      const filePath = await generateLayeredTrackFile(tone);
       playAudioAsync(filePath);
       return {
-        content: [{ type: "text", text: `Playing '${tone}' track with random samples...` }],
+        content: [{ type: "text", text: `Playing '${tone}' track with multiple layers...` }],
       };
     } catch (err) {
       return {
-        content: [{ type: "text", text: `Failed to play sampled track: ${err}` }],
+        content: [{ type: "text", text: `Failed to play layered track: ${err}` }],
       };
     }
   }
@@ -168,7 +202,7 @@ server.tool(
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error("🎵 Sample Synth MCP Server running on stdio with dynamic samples");
+  console.error("🎵 Layered Synth MCP Server running on stdio");
 }
 
 main().catch((err) => {
