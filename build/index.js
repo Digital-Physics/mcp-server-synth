@@ -2,37 +2,47 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import fs from "fs";
-// @ts-ignore (suppress type checking; this comment tells TS to treat it as any and compile anyway)
-import * as WavEncoder from "wav-encoder";
 import os from "os";
 import path from "path";
 import { spawn } from "child_process";
+// @ts-ignore
+import * as WavEncoder from "wav-encoder";
 const server = new McpServer({
     name: "retro-synth",
     version: "1.0.0",
 });
 // --- Synth Helper Functions ---
-function generateWaveform(freq, lengthSec, sampleRate, type = "sine") {
-    const totalSamples = Math.floor(lengthSec * sampleRate);
+function generateRichNoteBuffer(freq, noteLength, sampleRate) {
+    const totalSamples = Math.floor(noteLength * sampleRate);
     const buffer = new Float32Array(totalSamples);
+    if (freq === 0)
+        return buffer;
+    const tremoloFreq = 5; // Hz
+    const vibratoFreq = 6; // Hz
+    const vibratoDepth = 5; // Hz
     for (let i = 0; i < totalSamples; i++) {
         const t = i / sampleRate;
-        let sample = 0;
-        switch (type) {
-            case "sine":
-                sample = Math.sin(2 * Math.PI * freq * t);
-                break;
-            case "square":
-                sample = Math.sign(Math.sin(2 * Math.PI * freq * t));
-                break;
-            case "saw":
-                sample = 2 * (t * freq - Math.floor(t * freq + 0.5));
-                break;
-        }
-        // Simple ADSR envelope (attack/decay)
-        const attack = Math.min(0.1, t / 0.1);
-        const decay = Math.max(0, 1 - t / lengthSec);
-        buffer[i] = sample * attack * decay * 0.2; // scale volume
+        // Frequency modulation (vibrato)
+        const modFreq = freq + vibratoDepth * Math.sin(2 * Math.PI * vibratoFreq * t);
+        // Layered oscillators with slight detune
+        const sine = Math.sin(2 * Math.PI * modFreq * t) + Math.sin(2 * Math.PI * modFreq * 1.002 * t);
+        const square = Math.sign(Math.sin(2 * Math.PI * modFreq * t)) + Math.sign(Math.sin(2 * Math.PI * modFreq * 0.998 * t));
+        const saw = 2 * (t * modFreq - Math.floor(t * modFreq + 0.5)) + 2 * (t * modFreq * 1.001 - Math.floor(t * modFreq * 1.001 + 0.5));
+        // ADSR envelope
+        const attackTime = 0.05 + Math.random() * 0.02;
+        const decayTime = 0.1;
+        const sustainLevel = 0.7;
+        const releaseTime = 0.1;
+        let env = 1;
+        if (t < attackTime)
+            env = t / attackTime;
+        else if (t < attackTime + decayTime)
+            env = 1 - (1 - sustainLevel) * ((t - attackTime) / decayTime);
+        else if (t > noteLength - releaseTime)
+            env *= (noteLength - t) / releaseTime;
+        // Tremolo
+        const tremolo = 1 + 0.05 * Math.sin(2 * Math.PI * tremoloFreq * t);
+        buffer[i] = 0.2 * env * tremolo * (sine + square + saw);
     }
     return buffer;
 }
@@ -44,31 +54,18 @@ function combineBuffers(buffers) {
             out[i] += buf[i];
         }
     });
-    // normalize
-    const max = Math.max(...out.map((v) => Math.abs(v)));
+    // Normalize safely
+    let max = 0;
+    for (let i = 0; i < out.length; i++) {
+        const absVal = Math.abs(out[i]);
+        if (absVal > max)
+            max = absVal;
+    }
     if (max > 1) {
         for (let i = 0; i < out.length; i++)
             out[i] /= max;
     }
     return out;
-}
-function generateNoteBuffer(freq, noteLength, sampleRate) {
-    const totalSamples = Math.floor(noteLength * sampleRate);
-    const buffer = new Float32Array(totalSamples);
-    if (freq === 0)
-        return buffer; // rest
-    for (let i = 0; i < totalSamples; i++) {
-        const t = i / sampleRate;
-        // layered waveforms
-        const sine = Math.sin(2 * Math.PI * freq * t);
-        const square = Math.sign(Math.sin(2 * Math.PI * freq * t * 1.01)); // slight detune
-        const saw = 2 * (t * freq * 0.99 - Math.floor(t * freq * 0.99 + 0.5));
-        // ADSR envelope
-        const attack = Math.min(0.1, t / 0.1);
-        const decay = Math.max(0, 1 - t / noteLength);
-        buffer[i] = (sine + square + saw) * 0.2 * attack * decay;
-    }
-    return buffer;
 }
 async function synthesizeAndPlayRetroTrack(tone) {
     const sampleRate = 44100;
@@ -90,30 +87,16 @@ async function synthesizeAndPlayRetroTrack(tone) {
     const trackBuffer = new Float32Array(totalSamples);
     sequence.forEach((freq, idx) => {
         const startSample = Math.floor(idx * noteLength * sampleRate);
-        const noteBuffer = generateNoteBuffer(freq, noteLength, sampleRate);
+        const noteBuffer = generateRichNoteBuffer(freq, noteLength, sampleRate);
         for (let i = 0; i < noteBuffer.length && startSample + i < trackBuffer.length; i++) {
             trackBuffer[startSample + i] += noteBuffer[i];
         }
     });
-    // normalize once
-    // old (stack overflow for large arrays)
-    // const max = Math.max(...trackBuffer.map((v) => Math.abs(v)));
-    // new (safe)
-    let max = 0;
-    for (let i = 0; i < trackBuffer.length; i++) {
-        const absVal = Math.abs(trackBuffer[i]);
-        if (absVal > max)
-            max = absVal;
-    }
-    if (max > 1) {
-        for (let i = 0; i < trackBuffer.length; i++)
-            trackBuffer[i] /= max;
-    }
     const audioData = { sampleRate, channelData: [trackBuffer] };
     const wav = await WavEncoder.encode(audioData);
     const filePath = path.join(os.tmpdir(), `retro_${tone}_${Date.now()}.wav`);
     fs.writeFileSync(filePath, Buffer.from(wav));
-    const { spawn } = await import("child_process");
+    // Playback
     const playerCmd = process.platform === "darwin" ? "afplay" : "mpg123";
     const playerProcess = spawn(playerCmd, [filePath], { stdio: "ignore", detached: true });
     playerProcess.unref();
