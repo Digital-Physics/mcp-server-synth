@@ -12,17 +12,19 @@ npm install wav-encoder wav-decoder
 ### Build
 npm run build
 
+```
 project-root/
-├─ build/
-│   └─ index.js
-├─ src/
-│   └─ index.ts
-├─ samples/
-│   ├─ kick/
-│   ├─ snare/
-│   ├─ chord/
-│   └─ bass/
-
+    ├─ build/
+    │   └─ index.js
+    ├─ img/
+    ├─ samples/
+    │   ├─ kick/
+    │   ├─ snare/
+    │   ├─ chord/
+    │   └─ bass/
+    ├─ src/
+    │   └─ index.ts
+```
 
 ![pic](./img/screenshot.png)
 
