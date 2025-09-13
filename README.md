@@ -18,14 +18,14 @@ project-root/
 ├─ src/
 │   └─ index.ts
 ├─ samples/
-│   ├─ kick.wav
-│   ├─ snare.wav
-│   ├─ synth_chord_Cmaj.wav
-│   └─ bass_note_C2.wav
+│   ├─ kick/
+│   ├─ snare/
+│   ├─ chord/
+│   └─ bass/
 
 
 ![pic](./img/screenshot.png)
 
 You can download and play the demo.mp4 file if you want.
 
-[Demo Video](demo.mp4)
+[Demo Video](./img/demo.mp4)

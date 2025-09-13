@@ -18,7 +18,7 @@ const __dirname = path.dirname(__filename);
 // --- MCP Server ---
 const server = new McpServer({
   name: "sample-synth",
-  version: "1.2.0",
+  version: "1.3.0",
 });
 
 // --- Helper Functions ---
@@ -56,36 +56,52 @@ function mixBuffers(buffers: Float32Array[], offsets: number[]): Float32Array {
   return track;
 }
 
-// --- Generate sequence with repeats, offsets, and random chords ---
+// --- Utility to list files in a subfolder ---
+function getSamplesFromFolder(folderName: string): string[] {
+  const dir = path.resolve(__dirname, "../samples", folderName);
+  if (!fs.existsSync(dir)) return [];
+  return fs.readdirSync(dir)
+    .filter(f => f.endsWith(".wav"))
+    .map(f => path.join(folderName, f)); // relative to samples root
+}
+
+// --- Generate sequence dynamically ---
 function getSampleSequence(tone: string, repeats = 8) {
-  const drumPattern = [
-    { sample: "kick.wav", time: 0 },
-    { sample: "snare.wav", time: 0.5 },
-  ];
-
-  const bassPattern = [
-    { sample: "bass_note_C2.wav", time: 0 },
-    { sample: "bass_note_C2.wav", time: 0.5 },
-  ];
-
-  // Only use available chord samples to avoid missing files
-  const chordOptions = ["Cmaj"]; // replace/add other chords if you have them
-  const chordPattern: { sample: string; time: number }[] = [];
-  for (let i = 0; i < repeats; i++) {
-    const chord = chordOptions[Math.floor(Math.random() * chordOptions.length)];
-    chordPattern.push({ sample: `synth_chord_${chord}.wav`, time: i * 0.5 });
-  }
+  const kicks = getSamplesFromFolder("kick");
+  const snares = getSamplesFromFolder("snare");
+  const basses = getSamplesFromFolder("bass");
+  const chords = getSamplesFromFolder("chord");
 
   const sequence: { sample: string; time: number }[] = [];
 
   for (let r = 0; r < repeats; r++) {
     const offset = r * 1.0; // 1 second per repeat
-    drumPattern.forEach((d) => sequence.push({ sample: d.sample, time: d.time + offset }));
-    bassPattern.forEach((b) => sequence.push({ sample: b.sample, time: b.time + offset }));
-  }
 
-  // Add chords
-  sequence.push(...chordPattern);
+    // kick (random each bar)
+    if (kicks.length > 0) {
+      const kick = kicks[Math.floor(Math.random() * kicks.length)];
+      sequence.push({ sample: kick, time: offset });
+    }
+
+    // snare (backbeat)
+    if (snares.length > 0) {
+      const snare = snares[Math.floor(Math.random() * snares.length)];
+      sequence.push({ sample: snare, time: offset + 0.5 });
+    }
+
+    // bass (optional every beat)
+    if (basses.length > 0) {
+      const bass = basses[Math.floor(Math.random() * basses.length)];
+      sequence.push({ sample: bass, time: offset });
+      sequence.push({ sample: bass, time: offset + 0.5 });
+    }
+
+    // chord (longer sustain, once per bar)
+    if (chords.length > 0) {
+      const chord = chords[Math.floor(Math.random() * chords.length)];
+      sequence.push({ sample: chord, time: offset });
+    }
+  }
 
   return sequence;
 }
@@ -123,7 +139,7 @@ async function generateSampledTrackFile(tone: string): Promise<string> {
 function playAudioAsync(filePath: string) {
   const playerCmd = process.platform === "darwin" ? "afplay" : "mpg123";
   const child = spawn(playerCmd, [filePath], { stdio: "ignore", detached: true });
-  child.unref(); // allows MCP tool to return immediately
+  child.unref();
 }
 
 // --- MCP Tool ---
@@ -136,18 +152,13 @@ server.tool(
   async ({ tone }) => {
     try {
       const filePath = await generateSampledTrackFile(tone);
-      playAudioAsync(filePath); // play without waiting
-
+      playAudioAsync(filePath);
       return {
-        content: [
-          { type: "text", text: `Playing '${tone}' track while typing...` },
-        ],
+        content: [{ type: "text", text: `Playing '${tone}' track with random samples...` }],
       };
     } catch (err) {
       return {
-        content: [
-          { type: "text", text: `Failed to play sampled track: ${err}` },
-        ],
+        content: [{ type: "text", text: `Failed to play sampled track: ${err}` }],
       };
     }
   }
@@ -157,7 +168,7 @@ server.tool(
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error("🎵 Sample Synth MCP Server running on stdio");
+  console.error("🎵 Sample Synth MCP Server running on stdio with dynamic samples");
 }
 
 main().catch((err) => {
