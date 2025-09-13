@@ -7,12 +7,25 @@ npm init -y
 ### Install dependencies
 npm install @modelcontextprotocol/sdk zod@3
 npm install -D @types/node typescript
+npm install wav-encoder wav-decoder
 
 ### Build
 npm run build
 
+project-root/
+├─ build/
+│   └─ index.js
+├─ src/
+│   └─ index.ts
+├─ samples/
+│   ├─ kick.wav
+│   ├─ snare.wav
+│   ├─ synth_chord_Cmaj.wav
+│   └─ bass_note_C2.wav
+
+
 ![pic](./img/screenshot.png)
 
-You can open the demo.mov file and listen to it if the embedded video below has no sound.
+You can download and play the demo.mp4 file if you want.
 
 [Demo Video](demo.mp4)
