@@ -31,3 +31,5 @@ project-root/
 You can download and play the demo.mp4 file if you want.
 
 [Demo Video](./img/demo.mp4)
+
+<video src="./img/demo.mp4" width="320" height="240" controls></video>
