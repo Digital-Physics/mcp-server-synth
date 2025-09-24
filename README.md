@@ -22,6 +22,10 @@ project-root/
     │   ├─ snare/
     │   ├─ chord/
     │   └─ bass/
+    │   crickets.wav
+    │   rain.wav
+    │   water.wav
+    │   wind.wav
     ├─ src/
     │   └─ index.ts
 ```
@@ -31,5 +35,6 @@ project-root/
 You can download and play the demo.mp4 file if you want.
 
 [Demo Video](./img/demo.mp4)
+[Demo Video](./img/demo2.mp4)
 
 <video src="./img/demo.mp4" width="320" height="240" controls></video>
