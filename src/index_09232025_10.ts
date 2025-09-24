@@ -4,8 +4,7 @@ import { z } from "zod";
 import fs from "fs";
 import os from "os";
 import { spawn } from "child_process";
-import { ExecException } from 'child_process';
-// let currentPlayer: import('child_process').ChildProcess | null = null;
+let currentPlayer: import('child_process').ChildProcess | null = null;
 import path from "path";
 import { createRequire } from "module";
 import { fileURLToPath } from "url";
@@ -13,10 +12,6 @@ import { fileURLToPath } from "url";
 import * as WavEncoder from "wav-encoder";
 // @ts-ignore
 import WavDecoder from "wav-decoder";
-
-// process ID (PID) for killing any songs currently playing
-// let currentPlayerPid: number | null = null;
-let currentPlayerPid: number | null | undefined = null;
 
 // --- Setup ---
 const require = createRequire(import.meta.url);
@@ -345,74 +340,26 @@ function midiToWav(midiFile: string): Promise<string> {
 //     currentPlayer = null; // Clear the reference when the song finishes
 //   });
 // }
-// function playWav(file: string) {
-//   // Kill any previous song if a process is being tracked.
-//   if (currentPlayer) {
-//     console.error("Stopping previous song...");
-//     // Use the kill() method to terminate the process.
-//     currentPlayer.kill('SIGKILL');
-//   }
+function playWav(file: string) {
+  // Kill any previous song if a process is being tracked.
+  if (currentPlayer) {
+    console.error("Stopping previous song...");
+    // Use the kill() method to terminate the process.
+    currentPlayer.kill('SIGKILL');
+  }
 
-//   // Determine the correct command for the platform.
-//   const playerCmd = process.platform === "darwin" ? "afplay" : "play";
-
-//   // Spawn the new child process without detaching it.
-//   currentPlayer = spawn(playerCmd, [file], { stdio: "ignore" });
-
-//   // Add an event listener to handle the process exit.
-//   currentPlayer.on('exit', (code, signal) => {
-//     console.error(`Player process exited with code ${code} and signal ${signal}.`);
-//     // After the process exits, clear the reference to allow a new song to play.
-//     currentPlayer = null;
-//   });
-// }
-async function playWav(file: string) {
-  // Await the completion of the stop function before continuing.
-  await stopExistingPlayer();
-
+  // Determine the correct command for the platform.
   const playerCmd = process.platform === "darwin" ? "afplay" : "play";
 
-  // Use { detached: true } to ensure the parent can exit.
-  const player = spawn(playerCmd, [file], { stdio: "ignore", detached: true });
-  player.unref();
+  // Spawn the new child process without detaching it.
+  currentPlayer = spawn(playerCmd, [file], { stdio: "ignore" });
 
-  // Store the new process's PID.
-  currentPlayerPid = player.pid;
-
-  player.on('exit', () => {
-    // Only clear the PID if it matches the one that exited.
-    if (player.pid === currentPlayerPid) {
-      console.error("Player process has exited.");
-      currentPlayerPid = null;
-    }
+  // Add an event listener to handle the process exit.
+  currentPlayer.on('exit', (code, signal) => {
+    console.error(`Player process exited with code ${code} and signal ${signal}.`);
+    // After the process exits, clear the reference to allow a new song to play.
+    currentPlayer = null;
   });
-}
-
-async function stopExistingPlayer() {
-  if (currentPlayerPid) {
-    console.error(`Attempting to stop process with PID: ${currentPlayerPid}`);
-    try {
-      // Use the 'exec' function to run a shell command.
-      // 'kill -9' is a more forceful way to terminate the process.
-      await new Promise((resolve, reject) => {
-        // -9 corresponds to SIGKILL
-        require('child_process').exec(`kill -9 ${currentPlayerPid}`, (error: ExecException | null, stdout: string, stderr: string) => {
-          if (error) {
-            console.error(`Could not kill process ${currentPlayerPid}: ${stderr}`);
-            // Don't reject, as the process might have already exited.
-            resolve(null);
-          } else {
-            console.error(`Process ${currentPlayerPid} successfully killed.`);
-            resolve(null);
-          }
-        });
-      });
-      currentPlayerPid = null; // Clear the PID after the attempt
-    } catch (e: any) {
-      console.error(`Error while trying to kill process: ${e.message}`);
-      currentPlayerPid = null;
-    }
-  }
 }
 
 // --- MCP Tool Definition ---
@@ -451,7 +398,7 @@ server.tool(
       fs.writeFileSync(finalWavPath, Buffer.from(wavToEncode));
       console.error(`Final mixed WAV created: ${path.basename(finalWavPath)}`);
 
-      await playWav(finalWavPath);
+      playWav(finalWavPath);
       
       return {
         content: [{ type: "text", text: `🎹 Playing a new track with ${natureSound}. ${description}` }],
