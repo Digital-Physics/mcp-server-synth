@@ -1,5 +1,4 @@
-This repository contains a basic demo of an MCP server with tooling to generate synth music and play it to accompany a text response. 
-
+This repository contains a basic demo of an MCP server with tooling to generate synth music that will play to accompany a text response from a Large Language Model. It is meant to be run locally, as it makes calls to the operating system to play the music, rather than sending that info to the frontend to render sound in the browser.
 
 ### Initialize a new npm project
 npm init -y

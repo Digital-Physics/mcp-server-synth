@@ -14,26 +14,27 @@ import * as WavEncoder from "wav-encoder";
 // @ts-ignore
 import WavDecoder from "wav-decoder";
 
+// --- Setup ---
+// `createRequire` is used to create a `require` function for an ES module, allowing access to CommonJS modules like `midi-writer-js`.
+const require = createRequire(import.meta.url);
+const MidiWriter = require("midi-writer-js");
+
 // process ID (PID) for killing any songs currently playing
 // let currentPlayerPid: number | null = null;
 let currentPlayerPid: number | null | undefined = null;
 
-// --- Setup ---
-const require = createRequire(import.meta.url);
-const MidiWriter = require("midi-writer-js");
-
-
 // --- ESM __dirname hack ---
+// These lines are a common pattern in ES modules to replicate the behavior of the CommonJS variables `__filename` and `__dirname`.
+// ECMAScript Modules (ES modules or ESM) are the official, standardized system for organizing and reusing JavaScript code.
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // --- MCP Server ---
+// Initializes the Model Context Protocol (MCP) server, which allows this code to be exposed as a tool to a language model.
 const server = new McpServer({
   name: "retrowave-ambient-synth",
   version: "6.0.0",
 });
-
-// --- Musical Data & Theory ---
 
 const SCALES = {
   cMinor: ["C", "D", "D#", "F", "G", "G#", "A#"],
@@ -44,6 +45,8 @@ const SCALES = {
 };
 
 const CHORD_PROGRESSIONS = {
+  // Defines common chord progressions by Roman numeral analysis.
+  // Lowercase 'i' indicates a minor chord, uppercase 'I' a major chord.
   synthwave: ["vi", "IV", "I", "V"],
   retro: ["i", "VI", "III", "VII"],
   pop: ["I", "V", "vi", "IV"],
@@ -52,17 +55,19 @@ const CHORD_PROGRESSIONS = {
   emotional: ["i", "VII", "VI", "V"],
 };
 
+// MIDI program numbers for synth sounds
 const LEAD_SYNTHS = [80, 81, 82, 85];
 const BASS_SYNTHS = [38, 39, 34];
 const PAD_SYNTHS = [88, 89, 90, 91];
+// Plus Nature sounds are available
 const NATURE_SAMPLES = ["rain.wav", "crickets.wav", "water.wav", "wind.wav"];
 
-// --- Song Structure ---
 interface Section {
   name: "intro" | "verse" | "chorus" | "bridge" | "outro";
   length: number; // in measures
 }
 
+// Defines common song structures as templates.
 function generateSongStructure(): Section[] {
   const templates: Section[][] = [
     [ { name: "intro", length: 4 }, { name: "verse", length: 8 }, { name: "chorus", length: 8 }, { name: "verse", length: 8 }, { name: "chorus", length: 8 }, { name: "outro", length: 4 } ],
@@ -72,26 +77,32 @@ function generateSongStructure(): Section[] {
   return randomChoice(templates);
 }
 
-// --- Utilities & Audio Processing ---
+// A generic utility function to select a random item from an array.
 function randomChoice<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)];
 }
 
+// Reads a WAV file from the filesystem and uses `WavDecoder` to parse its audio data.
 async function loadWavFile(filePath: string): Promise<any> {
     const buffer = fs.readFileSync(filePath);
     return await WavDecoder.decode(buffer);
 }
 
+// A function to combine two audio buffers by adding their sample values.
+// It loops the `natureBuffer` to match the length of the `musicBuffer`.
 function mixAudio(musicBuffer: Float32Array, natureBuffer: Float32Array, natureVolume: number): Float32Array {
     const musicLength = musicBuffer.length;
     const natureLength = natureBuffer.length;
     const mixed = new Float32Array(musicLength);
 
     for (let i = 0; i < musicLength; i++) {
+        // Loop the nature sound
         const natureSample = natureBuffer[i % natureLength] * natureVolume;
         mixed[i] = musicBuffer[i] + natureSample;
     }
 
+    // Normalize to prevent clipping (when audio levels exceed the maximum).
+    // This scales all samples down if the combined audio is too loud.
     let max = 0;
     for (let i = 0; i < musicLength; i++) {
         const absVal = Math.abs(mixed[i]);
@@ -105,6 +116,7 @@ function mixAudio(musicBuffer: Float32Array, natureBuffer: Float32Array, natureV
 }
 
 function getChords(progression: string[], scale: string[], octave: number): string[][] {
+  // Translates a Roman numeral chord progression into actual note names based on a scale.
   const degreeMap: { [key: string]: number } = { 'i': 0, 'ii': 1, 'iii': 2, 'iv': 3, 'v': 4, 'vi': 5, 'vii': 6 };
   const getNote = (index: number) => {
     const notesInScale = scale.length;
@@ -115,6 +127,7 @@ function getChords(progression: string[], scale: string[], octave: number): stri
 
   return progression.map(degree => {
     const baseIndex = degreeMap[degree.toLowerCase()];
+    // The '+ 2' and '+ 4' logic constructs a major/minor triad (a three-note chord) from the scale.
     return [getNote(baseIndex), getNote(baseIndex + 2), getNote(baseIndex + 4)];
   });
 }
@@ -132,30 +145,6 @@ const DRUM_PATTERNS = {
     outro: (track: any) => { track.addEvent(new MidiWriter.NoteEvent({ pitch: ['C1'], duration: '4', channel: 10, repeat: 4 })); },
 };
 
-// function generateDrumTrack(structure: Section[]): any {
-//     const track = new MidiWriter.Track();
-//     track.addEvent(new MidiWriter.NoteOnEvent({ channel: 10 })); // Set drum channel
-//     for (let i = 0; i < structure.length; i++) {
-//         const section = structure[i];
-//         const isLastMeasureOfSection = (m: number) => m === section.length - 1;
-//         const needsFill = i < structure.length - 1 && structure[i+1].name !== 'outro';
-//         for (let measure = 0; measure < section.length; measure++) {
-//             track.setTempo(120, measure * 4 * 128);
-//             if (isLastMeasureOfSection(measure) && needsFill) {
-//                 DRUM_PATTERNS.fill(track);
-//             } else {
-//                 let pattern;
-//                 switch(section.name) {
-//                     case 'verse': pattern = randomChoice([DRUM_PATTERNS.verse_A, DRUM_PATTERNS.verse_B]); break;
-//                     case 'chorus': pattern = randomChoice([DRUM_PATTERNS.chorus_A, DRUM_PATTERNS.chorus_B]); break;
-//                     default: pattern = DRUM_PATTERNS[section.name] || DRUM_PATTERNS.verse_A;
-//                 }
-//                 pattern(track);
-//             }
-//         }
-//     }
-//     return track;
-// }
 function generateDrumTrack(structure: Section[]): any {
     const track = new MidiWriter.Track();
     track.addEvent(new MidiWriter.NoteOnEvent({ channel: 10 }));
@@ -204,6 +193,7 @@ function generateBassTrack(structure: Section[], chords: { [key: string]: string
 }
 
 const ARP_PATTERNS = {
+    // Defines arpeggio patterns (playing the notes of a chord one after another).
     up: (track: any, chord: string[]) => { for(let j=0; j<4; j++) track.addEvent(new MidiWriter.NoteEvent({ pitch: [chord[j%3]], duration: '16', velocity: 80 })); },
     down: (track: any, chord: string[]) => { for(let j=0; j<4; j++) track.addEvent(new MidiWriter.NoteEvent({ pitch: [chord[(3 - j)%3]], duration: '16', velocity: 80 })); },
     up_down: (track: any, chord: string[]) => { track.addEvent(new MidiWriter.NoteEvent({ pitch: [chord[0]], duration: '16', velocity: 80 })); track.addEvent(new MidiWriter.NoteEvent({ pitch: [chord[1]], duration: '16', velocity: 80 })); track.addEvent(new MidiWriter.NoteEvent({ pitch: [chord[2]], duration: '16', velocity: 80 })); track.addEvent(new MidiWriter.NoteEvent({ pitch: [chord[1]], duration: '16', velocity: 80 })); },
@@ -258,13 +248,12 @@ function generateMelodyTrack(structure: Section[], chords: { [key: string]: stri
 // --- Main Composition & File Handling ---
 
 function generateSongMIDI(tone?: string): { midiFile: string; description: string } {
+  // This is the core function that orchestrates the music generation process.
+  // It chooses a random structure, scale, and progressions, then generates MIDI tracks.
   const structure = generateSongStructure();
   
-//   let scale; 
   let scale: string[] = [];
-//   let verseProgression;
   let verseProgression: string[] = [];
-//   let chorusProgression;
   let chorusProgression: string[] = [];
 
   if (tone === 'dark') {
@@ -278,6 +267,18 @@ function generateSongMIDI(tone?: string): { midiFile: string; description: strin
   } else if (tone === 'emotional') {
       scale = randomChoice([SCALES.cMinor, SCALES.aMinor]);
       verseProgression = CHORD_PROGRESSIONS.emotional;
+      chorusProgression = CHORD_PROGRESSIONS.emotional;
+  } else if (tone === 'synthwave') {
+      scale = randomChoice([SCALES.eMinor, SCALES.aMinor]);
+      verseProgression = CHORD_PROGRESSIONS.emotional;
+      chorusProgression = CHORD_PROGRESSIONS.synthwave;
+  } else if (tone === 'retro') {
+      scale = randomChoice([SCALES.cMinor, SCALES.cDorian]);
+      verseProgression = CHORD_PROGRESSIONS.retro;
+      chorusProgression = CHORD_PROGRESSIONS.retro;
+  } else if (tone === 'pop') {
+      scale = randomChoice([SCALES.cMinor, SCALES.eMinor]);
+      verseProgression = CHORD_PROGRESSIONS.pop;
       chorusProgression = CHORD_PROGRESSIONS.pop;
   } else {
       scale = randomChoice(Object.values(SCALES));
@@ -312,6 +313,8 @@ function generateSongMIDI(tone?: string): { midiFile: string; description: strin
 }
 
 function midiToWav(midiFile: string): Promise<string> {
+  // This function uses the `timidity` command-line tool to render a MIDI file to a WAV audio file.
+  // Timidity acts as a software synthesizer, interpreting the MIDI instructions and creating sound.
   return new Promise((resolve, reject) => {
     const wavFile = midiFile.replace(/\.mid$/, ".wav");
     const timidity = spawn("timidity", [midiFile, "-Ow", "-o", wavFile, "-A", "100a"]);
@@ -324,50 +327,11 @@ function midiToWav(midiFile: string): Promise<string> {
   });
 }
 
-// function playWav(file: string) {
-//   const playerCmd = process.platform === "darwin" ? "afplay" : "play";
-//   spawn(playerCmd, [file], { stdio: "ignore", detached: true }).unref();
-// }
-// function playWav(file: string) {
-//   // Kill any previously playing song
-//   if (currentPlayer) {
-//     console.error("Stopping previous song...");
-//     currentPlayer.kill('SIGKILL');
-//     currentPlayer = null;
-//   }
-
-//   const playerCmd = process.platform === "darwin" ? "afplay" : "play";
-//   currentPlayer = spawn(playerCmd, [file], { stdio: "ignore", detached: true });
-//   currentPlayer.unref();
-
-//   currentPlayer.on('exit', (code, signal) => {
-//     console.error(`Player process exited with code ${code} and signal ${signal}.`)
-//     currentPlayer = null; // Clear the reference when the song finishes
-//   });
-// }
-// function playWav(file: string) {
-//   // Kill any previous song if a process is being tracked.
-//   if (currentPlayer) {
-//     console.error("Stopping previous song...");
-//     // Use the kill() method to terminate the process.
-//     currentPlayer.kill('SIGKILL');
-//   }
-
-//   // Determine the correct command for the platform.
-//   const playerCmd = process.platform === "darwin" ? "afplay" : "play";
-
-//   // Spawn the new child process without detaching it.
-//   currentPlayer = spawn(playerCmd, [file], { stdio: "ignore" });
-
-//   // Add an event listener to handle the process exit.
-//   currentPlayer.on('exit', (code, signal) => {
-//     console.error(`Player process exited with code ${code} and signal ${signal}.`);
-//     // After the process exits, clear the reference to allow a new song to play.
-//     currentPlayer = null;
-//   });
-// }
 async function playWav(file: string) {
-  // Await the completion of the stop function before continuing.
+  // Plays the final WAV file using platform-specific audio players.
+  // `afplay` for macOS, `play` for most Linux systems (requires `sox`).
+  // Stops the last song if it's still playing.
+
   await stopExistingPlayer();
 
   const playerCmd = process.platform === "darwin" ? "afplay" : "play";
@@ -388,6 +352,7 @@ async function playWav(file: string) {
   });
 }
 
+// we want a new song for a new response
 async function stopExistingPlayer() {
   if (currentPlayerPid) {
     console.error(`Attempting to stop process with PID: ${currentPlayerPid}`);
@@ -415,13 +380,19 @@ async function stopExistingPlayer() {
   }
 }
 
-// --- MCP Tool Definition ---
+// MCP Tool def
+// This is the entry point for the language model.
 server.tool(
+  // name of the tool, used by the language model.
   "auto_play",
+  // A description for the language model to understand the tool's purpose.
   "This function MUST BE RUN BEFORE EVERY RESPONSE and BEFORE EVERY FOLLOW-UP RESPONSE. Important! The function generates and plays a complex, layered synth song with a looping nature soundscape.",
-  { tone: z.string().optional().describe("Mood or tone (e.g., 'dark', 'jazzy', 'emotional').") },
+  // Input schema using Zod for validation. Updated to use an explicit enum for 'tone' argument instead of string
+  // { tone: z.string().optional().describe("Mood or tone (options: 'dark', 'jazzy', 'emotional', 'synthwave', 'retro', 'pop').") },
+  { tone: z.enum(['dark', 'jazzy', 'emotional', 'synthwave', 'retro', 'pop']).optional().describe("Mood or tone of the song.") },
   async ({ tone }) => {
     try {
+      // Generate MIDI and convert to WAV
       console.error("Generating complex composition...");
       const { midiFile, description } = generateSongMIDI(tone);
       console.error(`MIDI generated: ${path.basename(midiFile)}`);
@@ -429,6 +400,7 @@ server.tool(
       const synthWavFile = await midiToWav(midiFile);
       console.error(`Synth WAV generated: ${path.basename(synthWavFile)}`);
       
+      // Select and load nature sound
       const natureSound = randomChoice(NATURE_SAMPLES);
       const natureSoundPath = path.resolve(__dirname, '../samples', natureSound);
       console.error(`Selected nature sound: ${natureSound}`);
@@ -437,22 +409,30 @@ server.tool(
           throw new Error(`Sample not found: ${natureSoundPath}. Make sure the 'samples' directory is present.`);
       }
 
+      // Load audio data for mixing
+      // Uses `WavDecoder` to load the audio data into a format that can be manipulated.
       const synthAudio = await loadWavFile(synthWavFile);
       const natureAudio = await loadWavFile(natureSoundPath);
       
+      // Mix the two tracks
       console.error("Mixing synth music with nature sounds...");
       let natureVolume = 0.4;
-      if (tone === 'emotional') natureVolume = 0.6;
+      if (tone !== 'emotional') natureVolume = 0.9;
       const finalBuffer = mixAudio(synthAudio.channelData[0], natureAudio.channelData[0], natureVolume);
 
+
+      // Encode final mixed WAV
+      // `WavEncoder` takes the mixed audio data and turns it back into a WAV file buffer.
       const finalAudioData = { sampleRate: synthAudio.sampleRate, channelData: [finalBuffer] };
       const wavToEncode = await WavEncoder.encode(finalAudioData);
       const finalWavPath = path.join(os.tmpdir(), `final_mix_${Date.now()}.wav`);
       fs.writeFileSync(finalWavPath, Buffer.from(wavToEncode));
       console.error(`Final mixed WAV created: ${path.basename(finalWavPath)}`);
 
+      // Play the result
       await playWav(finalWavPath);
       
+      // Message will display in the LLM window
       return {
         content: [{ type: "text", text: `🎹 Playing a new track with ${natureSound}. ${description}` }],
       };
@@ -465,9 +445,9 @@ server.tool(
   }
 );
 
-
 // --- Main Server Entrypoint ---
 async function main() {
+  // `StdioServerTransport` enables the server to communicate over standard input/output, which is how the language model talks to the tool.
   const transport = new StdioServerTransport();
   await server.connect(transport);
   console.error("🎵 Ambient Nature Synth MCP Server is running");
