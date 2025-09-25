@@ -232,7 +232,7 @@ function generateMelodyTrack(structure: Section[], chords: { [key: string]: stri
     const track = new MidiWriter.Track();
     track.addEvent(new MidiWriter.ProgramChangeEvent({ instrument }));
     structure.forEach(section => {
-        if (section.name !== 'verse' && section.name !== 'bridge') return;
+        // if (section.name !== 'verse' && section.name !== 'bridge') return;
         const sectionChords = section.name === 'verse' ? chords.verse : chords.chorus;
         for (let i = 0; i < section.length; i++) {
             const chord = sectionChords[i % sectionChords.length];
@@ -273,7 +273,7 @@ function generateSongMIDI(tone?: string): { midiFile: string; description: strin
       verseProgression = CHORD_PROGRESSIONS.emotional;
       chorusProgression = CHORD_PROGRESSIONS.synthwave;
   } else if (tone === 'retro') {
-      scale = randomChoice([SCALES.cMinor, SCALES.cDorian]);
+      scale = randomChoice([SCALES.eMinor, SCALES.aMinor]);
       verseProgression = CHORD_PROGRESSIONS.retro;
       chorusProgression = CHORD_PROGRESSIONS.retro;
   } else if (tone === 'pop') {
@@ -381,14 +381,13 @@ async function stopExistingPlayer() {
 }
 
 // MCP Tool def
-// This is the entry point for the language model.
+// This is the entry point for the language model
 server.tool(
-  // name of the tool, used by the language model.
+  // name of the tool, used by the language model
   "auto_play",
-  // A description for the language model to understand the tool's purpose.
+  // description for the language model to understand the tool's purpose. It would be better if we hardcoded a logic function if we wanted it to play on every response.
   "This function MUST BE RUN BEFORE EVERY RESPONSE and BEFORE EVERY FOLLOW-UP RESPONSE. Important! The function generates and plays a complex, layered synth song with a looping nature soundscape.",
-  // Input schema using Zod for validation. Updated to use an explicit enum for 'tone' argument instead of string
-  // { tone: z.string().optional().describe("Mood or tone (options: 'dark', 'jazzy', 'emotional', 'synthwave', 'retro', 'pop').") },
+  // input schema using Zod for validation. Updated to use an explicit enum for 'tone' argument instead of string
   { tone: z.enum(['dark', 'jazzy', 'emotional', 'synthwave', 'retro', 'pop']).optional().describe("Mood or tone of the song.") },
   async ({ tone }) => {
     try {
@@ -416,7 +415,7 @@ server.tool(
       
       // Mix the two tracks
       console.error("Mixing synth music with nature sounds...");
-      let natureVolume = 0.4;
+      let natureVolume = 1.0;
       if (tone !== 'emotional') natureVolume = 0.9;
       const finalBuffer = mixAudio(synthAudio.channelData[0], natureAudio.channelData[0], natureVolume);
 
